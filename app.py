@@ -64,6 +64,15 @@ html, body, [class*="css"] {
 
 #MainMenu, footer { visibility: hidden; }
 header[data-testid="stHeader"] { background: transparent !important; }
+div[data-testid="stStatusWidget"],
+.stDeployButton,
+button[kind="header"],
+a[href*="share.streamlit.io"] { display: none !important; }
+
+/* Pull uploader snug under the upload intro panel */
+div[data-testid="stFileUploader"] {
+  margin-top: -0.35rem;
+}
 
 .hero {
   text-align: center;
