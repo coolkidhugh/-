@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+temp_uploaded_files/
+data/luggage/photos/
+data/luggage/qrcodes/
+data/luggage/*.db
+.streamlit/secrets.toml
+*.egg-info/
+.DS_Store
