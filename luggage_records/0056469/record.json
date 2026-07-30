@@ -24,11 +24,13 @@
     ],
     "floor": "浅绿/薄荷绿地板"
   },
-  "note": "手写730；房号1142；件数2；黑硬壳箱+粉白丝带；旁有银/浅蓝/淡紫箱",
+  "note": "手写730；房号1142；件数2；黑硬壳箱+粉白丝带；旁有银/浅蓝/淡紫箱｜待补现场实体图",
   "status": "stored",
   "created_at": "2026-07-30 02:09:08",
   "files": {
     "archive_card": "archive_card.jpg",
     "photo": "photo.jpg"
-  }
+  },
+  "has_real_photo": false,
+  "needs_real_photo": true
 }

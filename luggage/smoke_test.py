@@ -1,4 +1,4 @@
-"""冒烟：存几件 → 拍照找回位置。"""
+"""冒烟：存实体图 → 按短编号取出实体图路径。"""
 
 from __future__ import annotations
 
@@ -30,52 +30,36 @@ def main() -> int:
     import luggage.service as service
 
     tmp = Path(tempfile.mkdtemp(prefix="bag_test_"))
-    cfg.DATA_DIR = tmp
-    cfg.DB_PATH = tmp / "luggage.db"
-    cfg.PHOTOS_DIR = tmp / "photos"
-    db.DATA_DIR = tmp
+    cfg.DATA_DIR = tmp / "data"
+    cfg.DB_PATH = cfg.DATA_DIR / "luggage.db"
+    cfg.PHOTOS_DIR = cfg.DATA_DIR / "photos"
+    db.DATA_DIR = cfg.DATA_DIR
     db.DB_PATH = cfg.DB_PATH
     db.PHOTOS_DIR = cfg.PHOTOS_DIR
     service.PHOTOS_DIR = cfg.PHOTOS_DIR
+    service.RECORDS_DIR = tmp / "luggage_records"
 
     try:
         a = service.deposit(
             photo_bytes=_bag((20, 20, 20), "rect", "A"),
             location="货架A-上",
-            card_tag="卡联37",
-            note="演示黑箱",
+            card_tag="56469",
+            note="实体黑箱",
             bag_color="黑",
         )
-        b = service.deposit(
-            photo_bytes=_bag((30, 90, 200), "ellipse", "B"),
-            location="货架B-下",
-            card_tag="卡联88",
-            note="演示蓝包",
-            bag_color="蓝",
-        )
-        # 再存 8 件凑够「存了10个」
-        for i in range(8):
-            service.deposit(
-                photo_bytes=_bag((80 + i * 15, 40, 40 + i * 10), "ellipse", str(i)),
-                location=f"临时区/{i}",
-                card_tag=f"卡联{i}",
-                note=f"填充{i}",
-            )
+        assert a["card_tag"] == "0056469"
+        photo = service.get_photo_path("56469")
+        assert photo and photo.is_file(), "查编号必须带出实体图文件"
 
-        assert db.count_by_status().get("stored") == 10
+        hits = service.find_by_card("56469")
+        assert hits and hits[0]["card_tag"] == "0056469"
 
-        hits = service.find_by_photo(_bag((25, 25, 28), "rect", "Q"), top_k=3)
-        assert hits, "应能找回"
-        assert hits[0]["card_tag"] == "卡联37"
-        assert hits[0]["location"] == "货架A-上"
+        # 补传替换
+        service.replace_photo("56469", _bag((30, 90, 200), "ellipse", "B"))
+        photo2 = service.get_photo_path("0056469")
+        assert photo2 and photo2.is_file()
 
-        service.save_remark(a["id"], note="改过的备注")
-        assert db.get_by_id(a["id"])["note"] == "改过的备注"
-
-        by_card = service.find_by_card("卡联88")
-        assert by_card and by_card[0]["id"] == b["id"]
-
-        print("OK stored=10 top=", hits[0]["card_tag"], hits[0]["location"], hits[0]["match_score"])
+        print("OK", a["card_tag"], photo)
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

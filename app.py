@@ -6,18 +6,19 @@ from analyze_excel import analyze_reports_ultimate
 st.set_page_config(layout="wide", page_title="伯爵酒店工具箱")
 
 st.title("伯爵酒店工具箱")
-st.caption("Excel 团队报表分析 · 拍照存行李 / 拍照找位置")
+st.caption("Excel 团队报表分析 · 行李编号查实体图")
 
-with st.expander("🧳 拍照存行李 / 拍照找位置", expanded=True):
+with st.expander("🧳 行李：编号 → 实体图", expanded=True):
     st.markdown(
         """
-很简单三步（左侧进）：
+核心要求：**查卡联号就要带出现场实体照片**。
 
-1. **拍照存档** — 拍一张，标卡联号，写位置和备注  
-2. **拍照查找** — 以后从里面找一件，再拍一张，告诉你位置并给出原图  
-3. **存档列表** — 翻全部、改备注、标记取出  
+1. **按编号看图** — 输入 `56469` / `0056469`，直接出实体图 + 位置  
+2. **拍照存档** — 必须上传现场实体图（不能只写字）  
+3. **拍照查找** — 再拍一张找相似件  
+4. **存档列表** — 翻全部、改备注  
 
-说明：`luggage/SPEC.md`
+实体图保存在 `luggage_records/<编号>/photo.jpg`。
         """
     )
 

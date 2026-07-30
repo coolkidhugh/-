@@ -1,4 +1,4 @@
-"""展示卡片。"""
+"""展示卡片：优先大图展示实体照片。"""
 
 from __future__ import annotations
 
@@ -8,14 +8,16 @@ from typing import Any
 import streamlit as st
 
 
-def show_bag(bag: dict[str, Any], *, show_score: bool = False) -> None:
+def show_bag(bag: dict[str, Any], *, show_score: bool = False, big_photo: bool = True) -> None:
+    photo = bag.get("photo_path") or ""
+    if big_photo and photo and Path(photo).is_file():
+        st.image(photo, use_container_width=True, caption=f"实体图 · {bag.get('card_tag', '')}")
     left, right = st.columns([1, 1.1])
     with left:
-        photo = bag.get("photo_path") or ""
-        if photo and Path(photo).is_file():
-            st.image(photo, use_container_width=True, caption="存档照片")
-        else:
-            st.warning("照片文件缺失")
+        if (not big_photo) and photo and Path(photo).is_file():
+            st.image(photo, use_container_width=True, caption="实体图")
+        elif not photo or not Path(photo).is_file():
+            st.warning("缺少实体图")
     with right:
         if show_score and "match_score" in bag:
             pct = int(round(float(bag["match_score"]) * 100))

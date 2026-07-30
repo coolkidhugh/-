@@ -110,18 +110,54 @@ def get_by_id(bag_id: str) -> dict[str, Any] | None:
 
 
 def get_by_card_tag(card_tag: str) -> list[dict[str, Any]]:
+    """按卡联号查；支持输入 56469 命中 0056469。"""
     init_db()
     tag = card_tag.strip()
+    if not tag:
+        return []
+    digits = "".join(ch for ch in tag if ch.isdigit())
     with connect() as conn:
         rows = conn.execute(
             """
             SELECT * FROM bags
-            WHERE card_tag LIKE ? AND status = 'stored'
+            WHERE status = 'stored'
+              AND (
+                card_tag LIKE ?
+                OR replace(card_tag, ' ', '') LIKE ?
+                OR (? != '' AND card_tag LIKE '%' || ? )
+              )
             ORDER BY datetime(created_at) DESC
             """,
-            (f"%{tag}%",),
+            (f"%{tag}%", f"%{tag}%", digits, digits),
         ).fetchall()
-    return [dict(r) for r in rows]
+    hits = [dict(r) for r in rows]
+    # 若输入纯数字，优先精确尾号匹配（0056469）
+    if digits and hits:
+        exact = [h for h in hits if (h.get("card_tag") or "").endswith(digits)]
+        if exact:
+            return exact
+    return hits
+
+
+def update_photo(
+    bag_id: str,
+    *,
+    photo_path: str,
+    phash: str,
+    dhash: str,
+    colorhash: str,
+) -> dict[str, Any] | None:
+    init_db()
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE bags
+            SET photo_path = ?, phash = ?, dhash = ?, colorhash = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (photo_path, phash, dhash, colorhash, _utc_now(), bag_id),
+        )
+    return get_by_id(bag_id)
 
 
 def list_bags(

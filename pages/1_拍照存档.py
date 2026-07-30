@@ -12,7 +12,7 @@ st.set_page_config(page_title="拍照存档", page_icon="📷", layout="wide")
 inject_base_css()
 
 st.title("拍照存档")
-st.caption("拍一张行李照 → 标卡联号 → 写位置和备注。以后用照片就能找回。")
+st.caption("必须存现场实体图。拍行李 → 标卡联号 → 写位置备注。以后查编号直接带出这张图。")
 
 with st.form("deposit"):
     photo = st.camera_input("拍行李照片（推荐）")
