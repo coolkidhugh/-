@@ -1,4 +1,4 @@
-"""拍照找行李：感知哈希 + 颜色哈希相似度。"""
+"""拍照找行李：感知哈希相似度。"""
 
 from __future__ import annotations
 
@@ -66,15 +66,10 @@ def _color_distance(a: str, b: str) -> int | None:
 
 
 def similarity_score(query: HashBundle, candidate: dict[str, Any]) -> float:
-    """
-    综合相似度 0~1。
-    phash/dhash 权重高（外形轮廓），colorhash 辅助颜色。
-    """
     scores: list[tuple[float, float]] = []
 
     pd = _hamming(query.phash, candidate.get("phash") or "")
     if pd is not None:
-        # phash 64bit，距离 0 最好；>22 基本不像
         scores.append((max(0.0, 1.0 - pd / 22.0), 0.40))
 
     dd = _hamming(query.dhash, candidate.get("dhash") or "")
@@ -83,7 +78,6 @@ def similarity_score(query: HashBundle, candidate: dict[str, Any]) -> float:
 
     cd = _color_distance(query.colorhash, candidate.get("colorhash") or "")
     if cd is not None:
-        # 行李同外形不同色很常见，颜色权重略高
         scores.append((max(0.0, 1.0 - cd / 28.0), 0.30))
 
     if not scores:
@@ -101,9 +95,8 @@ def search_by_photo(
 ) -> list[dict[str, Any]]:
     query = compute_hashes(source)
     candidates = list_stored_with_hashes()
-    if bag_color:
-        color = bag_color.strip()
-        filtered = [c for c in candidates if (c.get("bag_color") or "") == color]
+    if bag_color and bag_color not in ("", "不标注"):
+        filtered = [c for c in candidates if (c.get("bag_color") or "") == bag_color]
         if filtered:
             candidates = filtered
 
@@ -120,10 +113,9 @@ def search_by_photo(
     return ranked[:top_k]
 
 
-def save_photo_bytes(data: bytes, ticket_code: str, photos_dir: Path) -> Path:
+def save_photo_bytes(data: bytes, bag_id: str, photos_dir: Path) -> Path:
     photos_dir.mkdir(parents=True, exist_ok=True)
     img = _open_image(data)
-    # 统一存 JPEG，控制体积
-    path = photos_dir / f"{ticket_code.upper()}.jpg"
+    path = photos_dir / f"{bag_id}.jpg"
     img.save(path, format="JPEG", quality=85, optimize=True)
     return path

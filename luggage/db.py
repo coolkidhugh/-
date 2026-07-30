@@ -1,4 +1,4 @@
-"""SQLite 行李寄存数据层。"""
+"""SQLite：照片 + 卡联标注 + 位置 + 备注。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 from uuid import uuid4
 
-from luggage.config import DB_PATH, DATA_DIR, PHOTOS_DIR, QR_DIR
+from luggage.config import DB_PATH, DATA_DIR, PHOTOS_DIR
 
 
 def _utc_now() -> str:
@@ -18,7 +18,6 @@ def _utc_now() -> str:
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
-    QR_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @contextmanager
@@ -26,7 +25,6 @@ def connect() -> Iterator[sqlite3.Connection]:
     ensure_dirs()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
@@ -42,20 +40,13 @@ def init_db() -> None:
     with connect() as conn:
         conn.executescript(
             """
-            CREATE TABLE IF NOT EXISTS luggage_items (
+            CREATE TABLE IF NOT EXISTS bags (
                 id TEXT PRIMARY KEY,
-                ticket_code TEXT NOT NULL UNIQUE,
-                guest_name TEXT NOT NULL,
-                room_no TEXT NOT NULL,
-                phone TEXT,
-                piece_count INTEGER NOT NULL DEFAULT 1,
-                bag_type TEXT,
-                bag_color TEXT,
-                brand_note TEXT,
+                card_tag TEXT NOT NULL,
                 location TEXT NOT NULL,
                 note TEXT,
+                bag_color TEXT,
                 photo_path TEXT NOT NULL,
-                qr_path TEXT,
                 phash TEXT,
                 dhash TEXT,
                 colorhash TEXT,
@@ -65,39 +56,28 @@ def init_db() -> None:
                 retrieved_at TEXT
             );
 
-            CREATE INDEX IF NOT EXISTS idx_luggage_status ON luggage_items(status);
-            CREATE INDEX IF NOT EXISTS idx_luggage_room ON luggage_items(room_no);
-            CREATE INDEX IF NOT EXISTS idx_luggage_ticket ON luggage_items(ticket_code);
-            CREATE INDEX IF NOT EXISTS idx_luggage_guest ON luggage_items(guest_name);
+            CREATE INDEX IF NOT EXISTS idx_bags_status ON bags(status);
+            CREATE INDEX IF NOT EXISTS idx_bags_card ON bags(card_tag);
+            CREATE INDEX IF NOT EXISTS idx_bags_location ON bags(location);
             """
         )
 
 
-def new_ticket_code() -> str:
-    """短可读票号：L + 日期 + 4位随机。"""
-    day = datetime.now().strftime("%m%d")
-    return f"L{day}{uuid4().hex[:4].upper()}"
+def new_id() -> str:
+    return uuid4().hex
 
 
-def insert_item(fields: dict[str, Any]) -> dict[str, Any]:
+def insert_bag(fields: dict[str, Any]) -> dict[str, Any]:
     init_db()
-    item_id = fields.get("id") or uuid4().hex
+    bag_id = fields.get("id") or new_id()
     now = _utc_now()
-    ticket = fields.get("ticket_code") or new_ticket_code()
     row = {
-        "id": item_id,
-        "ticket_code": ticket,
-        "guest_name": fields["guest_name"].strip(),
-        "room_no": fields["room_no"].strip(),
-        "phone": (fields.get("phone") or "").strip(),
-        "piece_count": int(fields.get("piece_count") or 1),
-        "bag_type": fields.get("bag_type") or "",
-        "bag_color": fields.get("bag_color") or "",
-        "brand_note": (fields.get("brand_note") or "").strip(),
-        "location": fields["location"],
+        "id": bag_id,
+        "card_tag": (fields.get("card_tag") or "").strip() or f"未编号-{bag_id[:6].upper()}",
+        "location": fields["location"].strip(),
         "note": (fields.get("note") or "").strip(),
+        "bag_color": (fields.get("bag_color") or "").strip(),
         "photo_path": fields["photo_path"],
-        "qr_path": fields.get("qr_path") or "",
         "phash": fields.get("phash") or "",
         "dhash": fields.get("dhash") or "",
         "colorhash": fields.get("colorhash") or "",
@@ -109,51 +89,45 @@ def insert_item(fields: dict[str, Any]) -> dict[str, Any]:
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO luggage_items (
-                id, ticket_code, guest_name, room_no, phone, piece_count,
-                bag_type, bag_color, brand_note, location, note,
-                photo_path, qr_path, phash, dhash, colorhash,
-                status, created_at, updated_at, retrieved_at
+            INSERT INTO bags (
+                id, card_tag, location, note, bag_color, photo_path,
+                phash, dhash, colorhash, status, created_at, updated_at, retrieved_at
             ) VALUES (
-                :id, :ticket_code, :guest_name, :room_no, :phone, :piece_count,
-                :bag_type, :bag_color, :brand_note, :location, :note,
-                :photo_path, :qr_path, :phash, :dhash, :colorhash,
-                :status, :created_at, :updated_at, :retrieved_at
+                :id, :card_tag, :location, :note, :bag_color, :photo_path,
+                :phash, :dhash, :colorhash, :status, :created_at, :updated_at, :retrieved_at
             )
             """,
             row,
         )
-    return get_by_id(item_id)
+    return get_by_id(bag_id)  # type: ignore[return-value]
 
 
-def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
+def get_by_id(bag_id: str) -> dict[str, Any] | None:
+    init_db()
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM bags WHERE id = ?", (bag_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_by_card_tag(card_tag: str) -> list[dict[str, Any]]:
+    init_db()
+    tag = card_tag.strip()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM bags
+            WHERE card_tag LIKE ? AND status = 'stored'
+            ORDER BY datetime(created_at) DESC
+            """,
+            (f"%{tag}%",),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_by_id(item_id: str) -> dict[str, Any] | None:
-    init_db()
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM luggage_items WHERE id = ?", (item_id,)
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def get_by_ticket(ticket_code: str) -> dict[str, Any] | None:
-    init_db()
-    code = ticket_code.strip().upper()
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM luggage_items WHERE upper(ticket_code) = ?", (code,)
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def list_items(
+def list_bags(
     status: str | None = "stored",
-    room_no: str | None = None,
-    guest_name: str | None = None,
-    limit: int = 200,
+    card_tag: str | None = None,
+    limit: int = 300,
 ) -> list[dict[str, Any]]:
     init_db()
     clauses: list[str] = []
@@ -161,23 +135,22 @@ def list_items(
     if status:
         clauses.append("status = ?")
         params.append(status)
-    if room_no:
-        clauses.append("room_no LIKE ?")
-        params.append(f"%{room_no.strip()}%")
-    if guest_name:
-        clauses.append("guest_name LIKE ?")
-        params.append(f"%{guest_name.strip()}%")
+    if card_tag:
+        clauses.append("card_tag LIKE ?")
+        params.append(f"%{card_tag.strip()}%")
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    sql = f"""
-        SELECT * FROM luggage_items
-        {where}
-        ORDER BY datetime(created_at) DESC
-        LIMIT ?
-    """
     params.append(limit)
     with connect() as conn:
-        rows = conn.execute(sql, params).fetchall()
-    return _rows_to_dicts(rows)
+        rows = conn.execute(
+            f"""
+            SELECT * FROM bags
+            {where}
+            ORDER BY datetime(created_at) DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def list_stored_with_hashes() -> list[dict[str, Any]]:
@@ -185,47 +158,61 @@ def list_stored_with_hashes() -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT * FROM luggage_items
-            WHERE status = 'stored' AND photo_path IS NOT NULL AND photo_path != ''
+            SELECT * FROM bags
+            WHERE status = 'stored'
+              AND photo_path IS NOT NULL
+              AND photo_path != ''
             ORDER BY datetime(created_at) DESC
             """
         ).fetchall()
-    return _rows_to_dicts(rows)
+    return [dict(r) for r in rows]
 
 
-def mark_retrieved(item_id: str) -> dict[str, Any] | None:
+def mark_retrieved(bag_id: str) -> dict[str, Any] | None:
     init_db()
     now = _utc_now()
     with connect() as conn:
         conn.execute(
             """
-            UPDATE luggage_items
+            UPDATE bags
             SET status = 'retrieved', updated_at = ?, retrieved_at = ?
             WHERE id = ? AND status = 'stored'
             """,
-            (now, now, item_id),
+            (now, now, bag_id),
         )
-    return get_by_id(item_id)
+    return get_by_id(bag_id)
 
 
-def update_location(item_id: str, location: str) -> dict[str, Any] | None:
+def update_note_or_location(
+    bag_id: str,
+    *,
+    note: str | None = None,
+    location: str | None = None,
+    card_tag: str | None = None,
+) -> dict[str, Any] | None:
     init_db()
+    bag = get_by_id(bag_id)
+    if not bag:
+        return None
+    new_note = bag["note"] if note is None else note.strip()
+    new_loc = bag["location"] if location is None else location.strip()
+    new_tag = bag["card_tag"] if card_tag is None else card_tag.strip()
     with connect() as conn:
         conn.execute(
             """
-            UPDATE luggage_items
-            SET location = ?, updated_at = ?
+            UPDATE bags
+            SET note = ?, location = ?, card_tag = ?, updated_at = ?
             WHERE id = ?
             """,
-            (location, _utc_now(), item_id),
+            (new_note, new_loc, new_tag, _utc_now(), bag_id),
         )
-    return get_by_id(item_id)
+    return get_by_id(bag_id)
 
 
 def count_by_status() -> dict[str, int]:
     init_db()
     with connect() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) AS c FROM luggage_items GROUP BY status"
+            "SELECT status, COUNT(*) AS c FROM bags GROUP BY status"
         ).fetchall()
     return {r["status"]: r["c"] for r in rows}

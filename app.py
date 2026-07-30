@@ -6,19 +6,18 @@ from analyze_excel import analyze_reports_ultimate
 st.set_page_config(layout="wide", page_title="伯爵酒店工具箱")
 
 st.title("伯爵酒店工具箱")
-st.caption("Excel 团队报表分析 · 行李寄存 QR / 拍照找行李")
+st.caption("Excel 团队报表分析 · 拍照存行李 / 拍照找位置")
 
-with st.expander("🧳 行李寄存 / 拍照找行李", expanded=True):
+with st.expander("🧳 拍照存行李 / 拍照找位置", expanded=True):
     st.markdown(
         """
-用左侧页面进入：
+很简单三步（左侧进）：
 
-1. **存入行李** — 拍照建档，生成 QR 票号，记录货架位置  
-2. **拍照找行李** — 再拍一张，按外形/颜色在在库行李里找候选  
-3. **扫码取件** — 票号 / 房号 / 姓名查找并取出  
-4. **在库一览** — 库存列表
+1. **拍照存档** — 拍一张，标卡联号，写位置和备注  
+2. **拍照查找** — 以后从里面找一件，再拍一张，告诉你位置并给出原图  
+3. **存档列表** — 翻全部、改备注、标记取出  
 
-实现说明见 `luggage/SPEC.md`。
+说明：`luggage/SPEC.md`
         """
     )
 

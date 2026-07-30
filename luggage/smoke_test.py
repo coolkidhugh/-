@@ -1,4 +1,4 @@
-"""核心逻辑冒烟测试（无 Streamlit UI）。"""
+"""冒烟：存几件 → 拍照找回位置。"""
 
 from __future__ import annotations
 
@@ -11,17 +11,14 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 
-def _bag(color: tuple[int, int, int], shape: str, mark: str = "") -> bytes:
+def _bag(color: tuple[int, int, int], shape: str, mark: str) -> bytes:
     img = Image.new("RGB", (320, 420), (235, 235, 235))
     draw = ImageDraw.Draw(img)
     if shape == "rect":
         draw.rectangle([50, 40, 270, 380], fill=color)
-        draw.rectangle([50, 40, 270, 380], outline=(255, 255, 255), width=4)
     else:
         draw.ellipse([40, 80, 280, 360], fill=color)
-        draw.ellipse([40, 80, 280, 360], outline=(255, 255, 255), width=4)
-    if mark:
-        draw.text((70, 190), mark, fill=(255, 255, 255))
+    draw.text((70, 190), mark, fill=(255, 255, 255))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)
     return buf.getvalue()
@@ -30,55 +27,55 @@ def _bag(color: tuple[int, int, int], shape: str, mark: str = "") -> bytes:
 def main() -> int:
     import luggage.config as cfg
     import luggage.db as db
-    import luggage.qrutil as qrutil
     import luggage.service as service
 
-    tmp = Path(tempfile.mkdtemp(prefix="luggage_test_"))
-    for mod in (cfg, db, qrutil):
-        mod.DATA_DIR = tmp  # type: ignore[attr-defined]
-        mod.DB_PATH = tmp / "luggage.db"  # type: ignore[attr-defined]
-        mod.PHOTOS_DIR = tmp / "photos"  # type: ignore[attr-defined]
-        mod.QR_DIR = tmp / "qrcodes"  # type: ignore[attr-defined]
+    tmp = Path(tempfile.mkdtemp(prefix="bag_test_"))
+    cfg.DATA_DIR = tmp
+    cfg.DB_PATH = tmp / "luggage.db"
+    cfg.PHOTOS_DIR = tmp / "photos"
+    db.DATA_DIR = tmp
+    db.DB_PATH = cfg.DB_PATH
+    db.PHOTOS_DIR = cfg.PHOTOS_DIR
     service.PHOTOS_DIR = cfg.PHOTOS_DIR
 
     try:
-        black = _bag((20, 20, 20), "rect", "BLK")
-        blue = _bag((30, 90, 200), "ellipse", "BLU")
-        black_query = _bag((25, 25, 28), "rect", "Q")
-
         a = service.deposit(
-            guest_name="张三",
-            room_no="1208",
+            photo_bytes=_bag((20, 20, 20), "rect", "A"),
             location="货架A-上",
-            photo_bytes=black,
+            card_tag="卡联37",
+            note="演示黑箱",
             bag_color="黑",
-            bag_type="登机箱",
         )
         b = service.deposit(
-            guest_name="李四",
-            room_no="1501",
+            photo_bytes=_bag((30, 90, 200), "ellipse", "B"),
             location="货架B-下",
-            photo_bytes=blue,
+            card_tag="卡联88",
+            note="演示蓝包",
             bag_color="蓝",
-            bag_type="托运箱",
         )
-        assert a["ticket_code"] and Path(a["qr_path"]).is_file()
-        assert b["status"] == "stored"
+        # 再存 8 件凑够「存了10个」
+        for i in range(8):
+            service.deposit(
+                photo_bytes=_bag((80 + i * 15, 40, 40 + i * 10), "ellipse", str(i)),
+                location=f"临时区/{i}",
+                card_tag=f"卡联{i}",
+                note=f"填充{i}",
+            )
 
-        found = service.find_by_ticket_or_scan(f"LUGGAGE:{a['ticket_code']}")
-        assert found and found["id"] == a["id"]
+        assert db.count_by_status().get("stored") == 10
 
-        hits = service.find_by_photo(black_query, top_k=5)
-        assert hits, "拍照找行李应至少返回 1 个候选"
-        assert hits[0]["ticket_code"] == a["ticket_code"], (
-            f"最相似应是黑箱，实际 {hits[0]['ticket_code']} "
-            f"score={hits[0]['match_score']}"
-        )
+        hits = service.find_by_photo(_bag((25, 25, 28), "rect", "Q"), top_k=3)
+        assert hits, "应能找回"
+        assert hits[0]["card_tag"] == "卡联37"
+        assert hits[0]["location"] == "货架A-上"
 
-        retrieved = service.retrieve(a["id"])
-        assert retrieved and retrieved["status"] == "retrieved"
+        service.save_remark(a["id"], note="改过的备注")
+        assert db.get_by_id(a["id"])["note"] == "改过的备注"
 
-        print("OK", a["ticket_code"], b["ticket_code"], "top_score", hits[0]["match_score"])
+        by_card = service.find_by_card("卡联88")
+        assert by_card and by_card[0]["id"] == b["id"]
+
+        print("OK stored=10 top=", hits[0]["card_tag"], hits[0]["location"], hits[0]["match_score"])
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

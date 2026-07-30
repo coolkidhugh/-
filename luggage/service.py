@@ -1,4 +1,4 @@
-"""寄存业务编排：存入 / 查找 / 取出。"""
+"""业务：拍照存档 / 拍照查找 / 改备注 / 取出。"""
 
 from __future__ import annotations
 
@@ -8,51 +8,35 @@ from typing import Any
 from luggage.config import PHOTOS_DIR
 from luggage import db
 from luggage.photo_search import compute_hashes, save_photo_bytes, search_by_photo
-from luggage.qrutil import make_qr_image, parse_ticket_payload
 
 
 def deposit(
     *,
-    guest_name: str,
-    room_no: str,
-    location: str,
     photo_bytes: bytes,
-    phone: str = "",
-    piece_count: int = 1,
-    bag_type: str = "",
-    bag_color: str = "",
-    brand_note: str = "",
+    location: str,
+    card_tag: str = "",
     note: str = "",
+    bag_color: str = "",
 ) -> dict[str, Any]:
-    if not guest_name.strip():
-        raise ValueError("请填写客人姓名")
-    if not room_no.strip():
-        raise ValueError("请填写房号")
-    if not location.strip():
-        raise ValueError("请选择存放位置")
     if not photo_bytes:
-        raise ValueError("请拍摄或上传行李照片")
+        raise ValueError("请先拍照或上传行李照片")
+    if not location.strip():
+        raise ValueError("请填写存放位置")
 
     db.init_db()
-    ticket = db.new_ticket_code()
-    photo_path = save_photo_bytes(photo_bytes, ticket, PHOTOS_DIR)
+    bag_id = db.new_id()
+    photo_path = save_photo_bytes(photo_bytes, bag_id, PHOTOS_DIR)
     hashes = compute_hashes(photo_path)
-    _, qr_path = make_qr_image(ticket, save=True)
+    color = "" if bag_color in ("", "不标注") else bag_color
 
-    return db.insert_item(
+    return db.insert_bag(
         {
-            "ticket_code": ticket,
-            "guest_name": guest_name,
-            "room_no": room_no,
-            "phone": phone,
-            "piece_count": piece_count,
-            "bag_type": bag_type,
-            "bag_color": bag_color,
-            "brand_note": brand_note,
+            "id": bag_id,
+            "card_tag": card_tag,
             "location": location,
             "note": note,
+            "bag_color": color,
             "photo_path": str(photo_path),
-            "qr_path": str(qr_path) if qr_path else "",
             "phash": hashes.phash,
             "dhash": hashes.dhash,
             "colorhash": hashes.colorhash,
@@ -60,36 +44,40 @@ def deposit(
     )
 
 
-def find_by_ticket_or_scan(raw: str) -> dict[str, Any] | None:
-    code = parse_ticket_payload(raw)
-    if not code:
-        return None
-    return db.get_by_ticket(code)
-
-
 def find_by_photo(
     photo_bytes: bytes,
     *,
     bag_color: str | None = None,
-    top_k: int = 8,
+    top_k: int = 6,
 ) -> list[dict[str, Any]]:
     return search_by_photo(photo_bytes, bag_color=bag_color, top_k=top_k)
 
 
-def retrieve(item_id: str) -> dict[str, Any] | None:
-    item = db.get_by_id(item_id)
-    if not item:
+def find_by_card(card_tag: str) -> list[dict[str, Any]]:
+    return db.get_by_card_tag(card_tag)
+
+
+def save_remark(
+    bag_id: str,
+    *,
+    note: str | None = None,
+    location: str | None = None,
+    card_tag: str | None = None,
+) -> dict[str, Any] | None:
+    return db.update_note_or_location(
+        bag_id, note=note, location=location, card_tag=card_tag
+    )
+
+
+def retrieve(bag_id: str) -> dict[str, Any] | None:
+    bag = db.get_by_id(bag_id)
+    if not bag:
         return None
-    if item["status"] != "stored":
-        return item
-    return db.mark_retrieved(item_id)
+    if bag["status"] != "stored":
+        return bag
+    return db.mark_retrieved(bag_id)
 
 
-def photo_exists(item: dict[str, Any]) -> bool:
-    path = item.get("photo_path") or ""
-    return bool(path) and Path(path).is_file()
-
-
-def qr_exists(item: dict[str, Any]) -> bool:
-    path = item.get("qr_path") or ""
+def photo_exists(bag: dict[str, Any]) -> bool:
+    path = bag.get("photo_path") or ""
     return bool(path) and Path(path).is_file()
