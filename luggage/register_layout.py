@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""按 layout.py 批量登记货架位（当前批次，与旧批次分开）。"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from luggage.layout import CURRENT_BATCH, LAYOUT  # noqa: E402
+from luggage import service  # noqa: E402
+
+
+def main() -> int:
+    print(f"批次 {CURRENT_BATCH}（与旧记录分开）")
+    created = []
+    for row_name, items in LAYOUT:
+        for idx, (card, extra) in enumerate(items, start=1):
+            location = f"{row_name} · 位{idx}"
+            notes = []
+            if extra.get("pieces"):
+                notes.append(f"{extra['pieces']}件")
+            if extra.get("note"):
+                notes.append(str(extra["note"]))
+            notes.append("待补实体图")
+            bag = service.register_slot(
+                card_tag=str(card),
+                location=location,
+                note="；".join(notes),
+                bag_color=extra.get("color") or "",
+                batch=CURRENT_BATCH,
+            )
+            created.append(bag["card_tag"])
+            print(
+                f"OK {bag['card_tag']:>8}  [{bag.get('batch')}]  "
+                f"{bag['location']}  {bag.get('bag_color') or '-'}"
+            )
+    print(f"\n批次 {CURRENT_BATCH} 合计 {len(created)} 件")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
