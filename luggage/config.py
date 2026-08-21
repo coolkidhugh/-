@@ -1,4 +1,4 @@
-"""路径与存放区。"""
+"""路径与货架行位。"""
 
 from __future__ import annotations
 
@@ -9,15 +9,18 @@ DATA_DIR = ROOT / "data" / "luggage"
 DB_PATH = DATA_DIR / "luggage.db"
 PHOTOS_DIR = DATA_DIR / "photos"
 
-# 现场货架位置（可按平面图改）
-STORAGE_ZONES = [
-    "货架A-上",
-    "货架A-下",
-    "货架B-上",
-    "货架B-下",
-    "货架C",
-    "墙边靠墙区",
-    "办公桌旁",
+# 从里往外共 6 行（最里面 = 第1行）
+STORAGE_ROWS = [
+    "第1行-最里面",
+    "第2行",
+    "第3行",
+    "第4行",
+    "第5行",
+    "第6行",
+]
+
+STORAGE_ZONES = list(STORAGE_ROWS) + [
+    "绿地板堆放区",
     "临时区/门口",
 ]
 

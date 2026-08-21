@@ -17,11 +17,12 @@ st.caption("必须存现场实体图。拍行李 → 标卡联号 → 写位置�
 with st.form("deposit"):
     photo = st.camera_input("拍行李照片（推荐）")
     upload = st.file_uploader("或上传照片", type=["jpg", "jpeg", "png", "webp"])
-    card_tag = st.text_input("卡联号 / 标签", placeholder="例如 卡联 37、红绳、客人名")
-    location = st.selectbox("存放位置", STORAGE_ZONES)
-    custom_loc = st.text_input("或手写位置（优先）", placeholder="例如 货架A第3格")
+    card_tag = st.text_input("卡联号 / 标签", placeholder="例如 9619、0056469")
+    location = st.selectbox("存放位置 *", STORAGE_ZONES)
+    slot = st.number_input("行内第几位（可选）", min_value=0, max_value=20, value=0)
+    custom_loc = st.text_input("或手写位置（优先）", placeholder="例如 第2行 · 位3")
     bag_color = st.selectbox("颜色（可选，方便筛选）", BAG_COLORS)
-    note = st.text_area("备注", placeholder="房号、客人特征、特殊交代…", height=80)
+    note = st.text_area("备注", placeholder="件数、客人特征…", height=80)
     ok = st.form_submit_button("保存", type="primary", use_container_width=True)
 
 if ok:
@@ -30,7 +31,9 @@ if ok:
         raw = photo.getvalue()
     elif upload is not None:
         raw = upload.getvalue()
-    loc = custom_loc.strip() or location
+    loc = custom_loc.strip() or (
+        f"{location} · 位{int(slot)}" if slot else location
+    )
     try:
         bag = service.deposit(
             photo_bytes=raw or b"",

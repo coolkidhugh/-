@@ -32,12 +32,11 @@ if lookup or (tag and st.session_state.get("_auto_lookup")):
         if rows:
             bag = rows[0]
             st.success(f"卡联 **{bag['card_tag']}** → 位置 **{bag['location']}**")
-            # 大图优先
-            path = service.get_photo_path(bag["card_tag"]) or Path(bag.get("photo_path") or "")
+            path = service.get_photo_path(bag["card_tag"])
             if path and path.is_file():
                 st.image(str(path), use_container_width=True, caption=f"实体图 · {bag['card_tag']}")
             else:
-                st.warning("该编号还没有实体图，请在下方补传现场照片。")
+                st.warning("该编号已落位，但还没有实体图 — 请在下方补传现场照片。")
             show_bag(bag)
         elif photo:
             st.image(str(photo), use_container_width=True, caption=f"实体图 · {tag}")

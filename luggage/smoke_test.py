@@ -47,19 +47,26 @@ def main() -> int:
             note="实体黑箱",
             bag_color="黑",
         )
-        assert a["card_tag"] == "0056469"
+        assert a["card_tag"] == "56469"
         photo = service.get_photo_path("56469")
         assert photo and photo.is_file(), "查编号必须带出实体图文件"
 
         hits = service.find_by_card("56469")
-        assert hits and hits[0]["card_tag"] == "0056469"
+        assert hits and hits[0]["card_tag"] == "56469"
 
         # 补传替换
         service.replace_photo("56469", _bag((30, 90, 200), "ellipse", "B"))
-        photo2 = service.get_photo_path("0056469")
+        photo2 = service.get_photo_path("56469")
         assert photo2 and photo2.is_file()
 
-        print("OK", a["card_tag"], photo)
+        # 无图落位
+        slot = service.register_slot(
+            card_tag="9617", location="第1行-最里面 · 位4", note="3件；待补实体图"
+        )
+        assert slot["card_tag"] == "9617"
+        assert service.get_photo_path("9617") is None
+
+        print("OK", a["card_tag"], photo, "slot", slot["location"])
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
