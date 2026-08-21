@@ -51,6 +51,7 @@ def init_db() -> None:
                 dhash TEXT,
                 colorhash TEXT,
                 status TEXT NOT NULL DEFAULT 'stored',
+                batch TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 retrieved_at TEXT
@@ -60,6 +61,13 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_bags_card ON bags(card_tag);
             CREATE INDEX IF NOT EXISTS idx_bags_location ON bags(location);
             """
+        )
+        # 旧库升级：补 batch 列后再建索引
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(bags)").fetchall()}
+        if "batch" not in cols:
+            conn.execute("ALTER TABLE bags ADD COLUMN batch TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bags_batch ON bags(batch)"
         )
 
 
@@ -82,6 +90,7 @@ def insert_bag(fields: dict[str, Any]) -> dict[str, Any]:
         "dhash": fields.get("dhash") or "",
         "colorhash": fields.get("colorhash") or "",
         "status": "stored",
+        "batch": (fields.get("batch") or "").strip(),
         "created_at": now,
         "updated_at": now,
         "retrieved_at": None,
@@ -91,10 +100,12 @@ def insert_bag(fields: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO bags (
                 id, card_tag, location, note, bag_color, photo_path,
-                phash, dhash, colorhash, status, created_at, updated_at, retrieved_at
+                phash, dhash, colorhash, status, batch,
+                created_at, updated_at, retrieved_at
             ) VALUES (
                 :id, :card_tag, :location, :note, :bag_color, :photo_path,
-                :phash, :dhash, :colorhash, :status, :created_at, :updated_at, :retrieved_at
+                :phash, :dhash, :colorhash, :status, :batch,
+                :created_at, :updated_at, :retrieved_at
             )
             """,
             row,
@@ -163,6 +174,7 @@ def update_photo(
 def list_bags(
     status: str | None = "stored",
     card_tag: str | None = None,
+    batch: str | None = None,
     limit: int = 300,
 ) -> list[dict[str, Any]]:
     init_db()
@@ -174,6 +186,9 @@ def list_bags(
     if card_tag:
         clauses.append("card_tag LIKE ?")
         params.append(f"%{card_tag.strip()}%")
+    if batch:
+        clauses.append("batch = ?")
+        params.append(batch.strip())
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)
     with connect() as conn:
@@ -181,7 +196,7 @@ def list_bags(
             f"""
             SELECT * FROM bags
             {where}
-            ORDER BY datetime(created_at) DESC
+            ORDER BY batch DESC, location ASC, datetime(created_at) DESC
             LIMIT ?
             """,
             params,
@@ -189,18 +204,42 @@ def list_bags(
     return [dict(r) for r in rows]
 
 
-def list_stored_with_hashes() -> list[dict[str, Any]]:
+def set_batch(bag_id: str, batch: str) -> dict[str, Any] | None:
     init_db()
     with connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM bags
-            WHERE status = 'stored'
-              AND photo_path IS NOT NULL
-              AND photo_path != ''
-            ORDER BY datetime(created_at) DESC
-            """
-        ).fetchall()
+        conn.execute(
+            "UPDATE bags SET batch = ?, updated_at = ? WHERE id = ?",
+            (batch.strip(), _utc_now(), bag_id),
+        )
+    return get_by_id(bag_id)
+
+
+def list_stored_with_hashes(batch: str | None = None) -> list[dict[str, Any]]:
+    init_db()
+    if batch:
+        with connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM bags
+                WHERE status = 'stored'
+                  AND batch = ?
+                  AND photo_path IS NOT NULL
+                  AND photo_path != ''
+                ORDER BY datetime(created_at) DESC
+                """,
+                (batch,),
+            ).fetchall()
+    else:
+        with connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM bags
+                WHERE status = 'stored'
+                  AND photo_path IS NOT NULL
+                  AND photo_path != ''
+                ORDER BY datetime(created_at) DESC
+                """
+            ).fetchall()
     return [dict(r) for r in rows]
 
 

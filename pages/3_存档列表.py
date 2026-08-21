@@ -14,7 +14,9 @@ inject_base_css()
 
 st.title("存档列表")
 
+from luggage.layout import CURRENT_BATCH
 counts = db.count_by_status()
+st.caption(f'当前批次：**{CURRENT_BATCH}**（与旧批次分开）')
 a, b, c = st.columns(3)
 a.metric("在库", counts.get("stored", 0))
 b.metric("已取出", counts.get("retrieved", 0))
@@ -28,18 +30,21 @@ status = st.radio(
 )
 q = st.text_input("筛卡联号", "")
 
+only_current = st.checkbox("只看当前批次", value=True)
 rows = db.list_bags(
     status=None if status == "全部" else status,
     card_tag=q or None,
+    batch=CURRENT_BATCH if only_current else None,
 )
 
 if not rows:
     st.info("暂无记录。去「拍照存档」存几件。")
 else:
-    df = pd.DataFrame(rows)[["card_tag", "location", "bag_color", "note", "status", "created_at"]]
+    df = pd.DataFrame(rows)[["card_tag", "batch", "location", "bag_color", "note", "status", "created_at"]]
     df = df.rename(
         columns={
             "card_tag": "卡联",
+            "batch": "批次",
             "location": "位置",
             "bag_color": "颜色",
             "note": "备注",

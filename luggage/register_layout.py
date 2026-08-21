@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""按 layout.py 批量登记货架位（可重复执行，同编号更新位置）。"""
+"""按 layout.py 批量登记货架位（当前批次，与旧批次分开）。"""
 
 from __future__ import annotations
 
@@ -9,11 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from luggage.layout import LAYOUT  # noqa: E402
+from luggage.layout import CURRENT_BATCH, LAYOUT  # noqa: E402
 from luggage import service  # noqa: E402
 
 
 def main() -> int:
+    print(f"批次 {CURRENT_BATCH}（与旧记录分开）")
     created = []
     for row_name, items in LAYOUT:
         for idx, (card, extra) in enumerate(items, start=1):
@@ -29,10 +30,14 @@ def main() -> int:
                 location=location,
                 note="；".join(notes),
                 bag_color=extra.get("color") or "",
+                batch=CURRENT_BATCH,
             )
-            created.append((bag["card_tag"], bag["location"], bag.get("bag_color") or ""))
-            print(f"OK {bag['card_tag']:>8}  {bag['location']}  {bag.get('bag_color') or '-'}")
-    print(f"\n合计 {len(created)} 件已登记")
+            created.append(bag["card_tag"])
+            print(
+                f"OK {bag['card_tag']:>8}  [{bag.get('batch')}]  "
+                f"{bag['location']}  {bag.get('bag_color') or '-'}"
+            )
+    print(f"\n批次 {CURRENT_BATCH} 合计 {len(created)} 件")
     return 0
 
 

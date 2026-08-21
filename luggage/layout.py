@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# 当前批次：与 7 月旧记录（如 0056469）完全分开
+CURRENT_BATCH = "2026-08-21"
+
 # 每行：[(卡联号, 可选备注字典)]
 # 备注字典支持 color / pieces / note
 LAYOUT: list[tuple[str, list[tuple[str, dict]]]] = [

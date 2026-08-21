@@ -12,6 +12,7 @@ from luggage import db
 from luggage.photo_search import compute_hashes, save_photo_bytes, search_by_photo
 
 RECORDS_DIR = ROOT / "luggage_records"
+ARCHIVE_DIR = RECORDS_DIR / "_archive"
 
 
 def _normalize_card_tag(card_tag: str) -> str:
@@ -23,10 +24,22 @@ def _normalize_card_tag(card_tag: str) -> str:
     return tag or digits
 
 
+def _batch_dir(batch: str) -> Path:
+    return RECORDS_DIR / batch if batch else RECORDS_DIR
+
+
+def _record_folder(card_tag: str, batch: str = "") -> Path:
+    tag = _normalize_card_tag(card_tag)
+    if batch:
+        return _batch_dir(batch) / tag
+    return RECORDS_DIR / tag
+
+
 def _write_record_meta(folder: Path, bag: dict[str, Any], *, has_real_photo: bool) -> None:
     meta = {
         "id": bag.get("id"),
         "card_tag": bag.get("card_tag"),
+        "batch": bag.get("batch") or "",
         "location": bag.get("location"),
         "note": bag.get("note"),
         "bag_color": bag.get("bag_color"),
@@ -41,9 +54,11 @@ def _write_record_meta(folder: Path, bag: dict[str, Any], *, has_real_photo: boo
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     photo_line = "`photo.jpg`" if has_real_photo else "（待补实体图）"
+    batch_line = bag.get("batch") or "（无批次）"
     (folder / "README.md").write_text(
         f"""# 卡联 {bag.get('card_tag')}
 
+- 批次：{batch_line}
 - 位置：{bag.get('location')}
 - 备注：{bag.get('note') or '（无）'}
 - 实体图：{photo_line}
@@ -54,7 +69,8 @@ def _write_record_meta(folder: Path, bag: dict[str, Any], *, has_real_photo: boo
 
 def _persist_record_photo(card_tag: str, photo_bytes: bytes, bag: dict[str, Any]) -> Path:
     """实体图落到仓库目录，查编号时可直接带出。"""
-    folder = RECORDS_DIR / _normalize_card_tag(card_tag)
+    batch = bag.get("batch") or ""
+    folder = _record_folder(card_tag, batch)
     folder.mkdir(parents=True, exist_ok=True)
     photo_path = folder / "photo.jpg"
     photo_path.write_bytes(photo_bytes)
@@ -95,6 +111,7 @@ def register_slot(
     location: str,
     note: str = "",
     bag_color: str = "",
+    batch: str = "",
     photo_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """按货架位登记编号。有实体图就存真图，没有则占位待补。"""
@@ -110,12 +127,17 @@ def register_slot(
             card_tag=card_tag,
             note=note,
             bag_color=bag_color,
+            batch=batch,
         )
 
     db.init_db()
     tag = _normalize_card_tag(card_tag)
-    # 同编号已在库则更新位置/备注，不重复插
-    existing = db.get_by_card_tag(tag)
+    # 同编号+同批次已在库则更新位置/备注
+    existing = [
+        b
+        for b in db.get_by_card_tag(tag)
+        if (not batch) or (b.get("batch") or "") == batch
+    ]
     if existing:
         bag = existing[0]
         updated = db.update_note_or_location(
@@ -124,7 +146,9 @@ def register_slot(
             location=location,
             card_tag=tag,
         )
-        folder = RECORDS_DIR / tag
+        if batch:
+            updated = db.set_batch(bag["id"], batch) or updated
+        folder = _record_folder(tag, batch or (updated or bag).get("batch") or "")
         _write_record_meta(folder, updated or bag, has_real_photo=False)
         return updated or bag
 
@@ -143,15 +167,12 @@ def register_slot(
             "phash": "",
             "dhash": "",
             "colorhash": "",
+            "batch": batch,
         }
     )
-    folder = RECORDS_DIR / tag
+    folder = _record_folder(tag, batch)
     folder.mkdir(parents=True, exist_ok=True)
-    # 占位图不叫 photo.jpg，避免冒充实体图
-    pending_path = folder / "pending.jpg"
-    pending_path.write_bytes(placeholder)
     _write_record_meta(folder, bag, has_real_photo=False)
-    # DB 仍指向 runtime 占位，查图时 get_photo_path 会区分
     return bag
 
 
@@ -162,6 +183,7 @@ def deposit(
     card_tag: str = "",
     note: str = "",
     bag_color: str = "",
+    batch: str = "",
 ) -> dict[str, Any]:
     if not photo_bytes:
         raise ValueError("必须上传实体照片（现场图），不能只有文字标注")
@@ -186,11 +208,10 @@ def deposit(
             "phash": hashes.phash,
             "dhash": hashes.dhash,
             "colorhash": hashes.colorhash,
+            "batch": batch,
         }
     )
-    # 同步一份实体图到 luggage_records/<编号>/photo.jpg
     archived = _persist_record_photo(tag, photo_bytes, bag)
-    # 展示路径优先用归档实体图（持久、可进仓库）
     updated = db.update_photo(
         bag_id,
         photo_path=str(archived),
@@ -240,32 +261,37 @@ def find_by_card(card_tag: str) -> list[dict[str, Any]]:
     return db.get_by_card_tag(card_tag)
 
 
-def get_photo_path(card_tag: str) -> Path | None:
+def get_photo_path(card_tag: str, batch: str | None = None) -> Path | None:
     """查编号 → 实体图路径。仅返回真正的 photo.jpg（不含占位图）。"""
     tag = _normalize_card_tag(card_tag)
-    folder = RECORDS_DIR / tag
-    real = folder / "photo.jpg"
-    if real.is_file():
-        return real
     rows = find_by_card(card_tag)
+    if batch:
+        rows = [r for r in rows if (r.get("batch") or "") == batch]
+    candidates: list[Path] = []
     if rows:
-        path = Path(rows[0].get("photo_path") or "")
-        # runtime 占位图不算实体图
-        meta_path = (RECORDS_DIR / _normalize_card_tag(rows[0].get("card_tag") or tag) / "record.json")
-        if meta_path.is_file():
-            try:
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                if meta.get("has_real_photo") and path.is_file():
-                    return path
-            except Exception:
-                pass
-        if path.is_file() and path.name == "photo.jpg":
+        b = rows[0]
+        candidates.append(_record_folder(b.get("card_tag") or tag, b.get("batch") or "") / "photo.jpg")
+        path = Path(b.get("photo_path") or "")
+        if path.name == "photo.jpg":
+            candidates.append(path)
+    # 也扫当前批次目录与根目录
+    from luggage.layout import CURRENT_BATCH
+
+    for bname in filter(None, [batch, CURRENT_BATCH, ""]):
+        candidates.append(_record_folder(tag, bname) / "photo.jpg")
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
             return path
     return None
 
 
-def has_real_photo(card_tag: str) -> bool:
-    return get_photo_path(card_tag) is not None
+def has_real_photo(card_tag: str, batch: str | None = None) -> bool:
+    return get_photo_path(card_tag, batch=batch) is not None
 
 
 def save_remark(

@@ -23,6 +23,8 @@ def show_bag(bag: dict[str, Any], *, show_score: bool = False, big_photo: bool =
             pct = int(round(float(bag["match_score"]) * 100))
             st.metric("相似度", f"{pct}%")
         st.markdown(f"### 卡联：`{bag.get('card_tag', '')}`")
+        if bag.get("batch"):
+            st.caption(f"批次：{bag['batch']}")
         st.success(f"位置：**{bag.get('location', '')}**")
         color = bag.get("bag_color") or ""
         if color:
